@@ -29,4 +29,13 @@ public class User {
     @Column(name = "photo_url")
     private String photoUrl;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private Role role = Role.USER;
+
+    public enum Role {
+        USER,
+        ADMIN
+    }
+
 }
