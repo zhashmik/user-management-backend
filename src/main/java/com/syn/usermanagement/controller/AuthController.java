@@ -8,8 +8,11 @@ import com.syn.usermanagement.repository.UserRepository;
 import com.syn.usermanagement.security.CustomUserDetailsService;
 import com.syn.usermanagement.security.JwtUtils;
 import com.syn.usermanagement.service.TokenBlacklistService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -20,7 +23,6 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -29,6 +31,9 @@ import java.util.Map;
 @CrossOrigin(origins = "http://localhost:4200")
 public class AuthController {
 
+    // Create logger for this class
+    private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
+
     private final AuthenticationManager authenticationManager;
     private final CustomUserDetailsService userDetailsService;
     private final UserRepository userRepository;
@@ -36,14 +41,20 @@ public class AuthController {
     private final JwtUtils jwtUtils;
     private final TokenBlacklistService tokenBlacklistService;
 
-
     /**
      * Login endpoint
      */
     @PostMapping("/login")
-    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest loginRequest) {
+    public ResponseEntity<?> login(
+            @Valid @RequestBody LoginRequest loginRequest,
+            HttpServletRequest request
+    ) {
+        String clientIp = getClientIp(request);
+
+        logger.info("🔐 LOGIN ATTEMPT - Email: {} - IP: {}",
+                loginRequest.getEmail(), clientIp);
+
         try {
-            // Authenticate user
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
                             loginRequest.getEmail(),
@@ -51,16 +62,13 @@ public class AuthController {
                     )
             );
 
-            // Get user details
             UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-
-            // Get full user entity
             User user = userDetailsService.loadUserEntityByEmail(loginRequest.getEmail());
-
-            // Generate JWT token
             String token = jwtUtils.generateToken(userDetails);
 
-            // Return response with token and user info
+            logger.info("✅ LOGIN SUCCESS - Email: {} - UserId: {} - IP: {}",
+                    user.getEmail(), user.getId(), clientIp);
+
             LoginResponse response = new LoginResponse(
                     token,
                     user.getId(),
@@ -72,9 +80,17 @@ public class AuthController {
             return ResponseEntity.ok(response);
 
         } catch (BadCredentialsException e) {
-            Map<String, String> error = new HashMap<>();
-            error.put("message", "Invalid email or password");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
+            logger.warn("❌ LOGIN FAILED - Email: {} - Reason: Invalid credentials - IP: {}",
+                    loginRequest.getEmail(), clientIp);
+
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("message", "Invalid email or password"));
+        } catch (Exception e) {
+            logger.error("🔥 LOGIN ERROR - Email: {} - Error: {} - IP: {}",
+                    loginRequest.getEmail(), e.getMessage(), clientIp, e);
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("message", "Login failed"));
         }
     }
 
@@ -82,111 +98,80 @@ public class AuthController {
      * Register endpoint
      */
     @PostMapping("/register")
-    public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest registerRequest) {
-        // Check if email already exists
+    public ResponseEntity<?> register(
+            @Valid @RequestBody RegisterRequest registerRequest,
+            HttpServletRequest request
+    ) {
+        String clientIp = getClientIp(request);
+
+        logger.info("📝 REGISTRATION ATTEMPT - Email: {} - IP: {}",
+                registerRequest.getEmail(), clientIp);
+
         if (userRepository.existsByEmail(registerRequest.getEmail())) {
-            Map<String, String> error = new HashMap<>();
-            error.put("message", "Email already exists");
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+            logger.warn("⚠️ REGISTRATION FAILED - Email: {} - Reason: Email already exists - IP: {}",
+                    registerRequest.getEmail(), clientIp);
+
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("message", "Email already exists"));
         }
 
-        // Create new user
-        User user = new User();
-        user.setName(registerRequest.getName());
-        user.setEmail(registerRequest.getEmail());
-        user.setPassword(passwordEncoder.encode(registerRequest.getPassword())); // Encrypt password
-        user.setRole(User.Role.USER); // Default role
-
-        // Save user
-        User savedUser = userRepository.save(user);
-
-        // Generate token for immediate login
-        UserDetails userDetails = userDetailsService.loadUserByUsername(savedUser.getEmail());
-        String token = jwtUtils.generateToken(userDetails);
-
-        // Return response
-        LoginResponse response = new LoginResponse(
-                token,
-                savedUser.getId(),
-                savedUser.getName(),
-                savedUser.getEmail(),
-                savedUser.getRole().name()
-        );
-
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
-
-    /**
-     * Validate token endpoint (optional - useful for frontend)
-     */
-    @GetMapping("/validate")
-    public ResponseEntity<?> validateToken(@RequestHeader("Authorization") String authHeader) {
         try {
-            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("valid", false));
-            }
+            User user = new User();
+            user.setName(registerRequest.getName());
+            user.setEmail(registerRequest.getEmail());
+            user.setPassword(passwordEncoder.encode(registerRequest.getPassword()));
+            user.setRole(User.Role.USER);
 
-            String token = authHeader.substring(7);
-            String email = jwtUtils.extractUsername(token);
-            UserDetails userDetails = userDetailsService.loadUserByUsername(email);
+            User savedUser = userRepository.save(user);
 
-            if (jwtUtils.validateToken(token, userDetails)) {
-                User user = userDetailsService.loadUserEntityByEmail(email);
-                return ResponseEntity.ok(Map.of(
-                        "valid", true,
-                        "id", user.getId(),
-                        "name", user.getName(),
-                        "email", user.getEmail(),
-                        "role", user.getRole().name()
-                ));
-            }
+            logger.info("✅ REGISTRATION SUCCESS - Email: {} - UserId: {} - IP: {}",
+                    savedUser.getEmail(), savedUser.getId(), clientIp);
 
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("valid", false));
+            UserDetails userDetails = userDetailsService.loadUserByUsername(savedUser.getEmail());
+            String token = jwtUtils.generateToken(userDetails);
+
+            LoginResponse response = new LoginResponse(
+                    token,
+                    savedUser.getId(),
+                    savedUser.getName(),
+                    savedUser.getEmail(),
+                    savedUser.getRole().name()
+            );
+
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
 
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("valid", false));
+            logger.error("🔥 REGISTRATION ERROR - Email: {} - Error: {} - IP: {}",
+                    registerRequest.getEmail(), e.getMessage(), clientIp, e);
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("message", "Registration failed"));
         }
     }
 
     /**
-     * Get current user info
-     */
-    @GetMapping("/me")
-    public ResponseEntity<?> getCurrentUser(@RequestHeader("Authorization") String authHeader) {
-        try {
-            String token = authHeader.substring(7);
-            String email = jwtUtils.extractUsername(token);
-            User user = userDetailsService.loadUserEntityByEmail(email);
-
-            Map<String, Object> userInfo = new HashMap<>();
-            userInfo.put("id", user.getId());
-            userInfo.put("name", user.getName());
-            userInfo.put("email", user.getEmail());
-            userInfo.put("role", user.getRole().name());
-            userInfo.put("photoUrl", user.getPhotoUrl());
-
-            return ResponseEntity.ok(userInfo);
-
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "Invalid token"));
-        }
-    }
-
-    /**
-     * Logout endpoint - Invalidates the token
+     * Logout endpoint
      */
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(@RequestHeader("Authorization") String authHeader) {
+    public ResponseEntity<?> logout(
+            @RequestHeader("Authorization") String authHeader,
+            HttpServletRequest request
+    ) {
+        String clientIp = getClientIp(request);
+
         try {
             if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                logger.warn("⚠️ LOGOUT FAILED - Reason: Invalid auth header - IP: {}", clientIp);
                 return ResponseEntity.badRequest()
                         .body(Map.of("message", "Invalid authorization header"));
             }
 
             String token = authHeader.substring(7);
+            String userEmail = jwtUtils.extractUsername(token);
 
-            // Add token to blacklist
             tokenBlacklistService.blacklistToken(token);
+
+            logger.info("🚪 LOGOUT SUCCESS - Email: {} - IP: {}", userEmail, clientIp);
 
             return ResponseEntity.ok(Map.of(
                     "message", "Logged out successfully",
@@ -194,8 +179,20 @@ public class AuthController {
             ));
 
         } catch (Exception e) {
+            logger.error("🔥 LOGOUT ERROR - Error: {} - IP: {}", e.getMessage(), clientIp, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("message", "Logout failed: " + e.getMessage()));
         }
+    }
+
+    /**
+     * Get client IP address
+     */
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        return ip;
     }
 }

@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- ============================================== -->
+    <!-- PROPERTIES                                      -->
+    <!-- ============================================== -->
+
+    <!-- Log file location -->
+    <property name="LOG_PATH" value="./logs"/>
+
+    <!-- Application name -->
+    <property name="APP_NAME" value="user-management"/>
+
+    <!-- Log pattern for console -->
+    <property name="CONSOLE_LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%blue(%thread)] %cyan(%logger{36}) - %msg%n"/>
+
+    <!-- Log pattern for file -->
+    <property name="FILE_LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [%X{requestId}] [%X{userId}] %logger{36} - %msg%n"/>
+
+    <!-- ============================================== -->
+    <!-- CONSOLE APPENDER                                -->
+    <!-- ============================================== -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ============================================== -->
+    <!-- FILE APPENDER - All Logs                        -->
+    <!-- ============================================== -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}.log</file>
+
+        <encoder>
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+
+        <!-- Rolling policy - create new file daily or when size exceeds limit -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- Daily rollover with compression -->
+            <fileNamePattern>${LOG_PATH}/archived/${APP_NAME}-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+
+            <!-- Max file size before rollover -->
+            <maxFileSize>10MB</maxFileSize>
+
+            <!-- Keep 30 days of history -->
+            <maxHistory>30</maxHistory>
+
+            <!-- Total size cap for all archived files -->
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <!-- ============================================== -->
+    <!-- ERROR FILE APPENDER - Only Errors               -->
+    <!-- ============================================== -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}-error.log</file>
+
+        <!-- Only log ERROR level -->
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+
+        <encoder>
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/archived/${APP_NAME}-error-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>60</maxHistory>
+            <totalSizeCap>500MB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <!-- ============================================== -->
+    <!-- SECURITY AUDIT LOG - Login/Logout events        -->
+    <!-- ============================================== -->
+    <appender name="SECURITY_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}-security.log</file>
+
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{requestId}] [%X{userId}] [%X{clientIp}] %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/archived/${APP_NAME}-security-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>90</maxHistory>
+            <totalSizeCap>500MB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <!-- ============================================== -->
+    <!-- ASYNC APPENDER - Better Performance             -->
+    <!-- ============================================== -->
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <discardingThreshold>0</discardingThreshold>
+        <queueSize>512</queueSize>
+        <appender-ref ref="FILE"/>
+    </appender>
+
+    <!-- ============================================== -->
+    <!-- LOGGER CONFIGURATIONS                           -->
+    <!-- ============================================== -->
+
+    <!-- Application package - DEBUG level -->
+    <logger name="com.syn.usermanagement" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+    </logger>
+
+    <!-- Security logger -->
+    <logger name="com.syn.usermanagement.security" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="SECURITY_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+    </logger>
+
+    <!-- Spring framework - INFO level -->
+    <logger name="org.springframework" level="INFO"/>
+
+    <!-- Hibernate SQL logging (DEBUG to see queries) -->
+    <logger name="org.hibernate.SQL" level="DEBUG"/>
+    <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="TRACE"/>
+
+    <!-- ============================================== -->
+    <!-- ROOT LOGGER                                     -->
+    <!-- ============================================== -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+    </root>
+
+</configuration>

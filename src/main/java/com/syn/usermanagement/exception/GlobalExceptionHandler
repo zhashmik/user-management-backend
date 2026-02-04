@@ -1,7 +1,12 @@
-package com.example.usermanagement.exception;
+package com.syn.usermanagement.exception;
 
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -11,65 +16,154 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Global Exception Handler - Catches all exceptions and logs them
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleResourceNotFoundException(ResourceNotFoundException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                LocalDateTime.now()
-        );
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(error);
-    }
+    private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @ExceptionHandler(EmailAlreadyExistsException.class)
-    public ResponseEntity<ErrorResponse> handleEmailAlreadyExistsException(EmailAlreadyExistsException ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                LocalDateTime.now()
-        );
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
-    }
-
+    /**
+     * Handle validation errors
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, String>> handleValidationExceptions(MethodArgumentNotValidException ex) {
-        Map<String, String> errors = new HashMap<>();
-        ex.getBindingResult().getAllErrors().forEach((error) -> {
+    public ResponseEntity<Map<String, Object>> handleValidationErrors(
+            MethodArgumentNotValidException ex,
+            HttpServletRequest request
+    ) {
+        Map<String, String> fieldErrors = new HashMap<>();
+        ex.getBindingResult().getAllErrors().forEach(error -> {
             String fieldName = ((FieldError) error).getField();
             String errorMessage = error.getDefaultMessage();
-            errors.put(fieldName, errorMessage);
+            fieldErrors.put(fieldName, errorMessage);
         });
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors);
+
+        logger.warn("⚠️ VALIDATION ERROR - URI: {} - Errors: {}",
+                request.getRequestURI(), fieldErrors);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("timestamp", LocalDateTime.now().toString());
+        response.put("status", HttpStatus.BAD_REQUEST.value());
+        response.put("error", "Validation Failed");
+        response.put("message", "Invalid input data");
+        response.put("fieldErrors", fieldErrors);
+        response.put("path", request.getRequestURI());
+
+        return ResponseEntity.badRequest().body(response);
     }
 
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleGlobalException(Exception ex) {
-        ErrorResponse error = new ErrorResponse(
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "An unexpected error occurred: " + ex.getMessage(),
-                LocalDateTime.now()
+    /**
+     * Handle bad credentials
+     */
+    @ExceptionHandler(BadCredentialsException.class)
+    public ResponseEntity<Map<String, Object>> handleBadCredentials(
+            BadCredentialsException ex,
+            HttpServletRequest request
+    ) {
+        logger.warn("🔒 AUTHENTICATION FAILED - URI: {} - Message: {}",
+                request.getRequestURI(), ex.getMessage());
+
+        return buildErrorResponse(
+                HttpStatus.UNAUTHORIZED,
+                "Authentication Failed",
+                "Invalid username or password",
+                request.getRequestURI()
         );
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
-    }
-}
-
-// ErrorResponse class
-class ErrorResponse {
-    private int status;
-    private String message;
-    private LocalDateTime timestamp;
-
-    public ErrorResponse(int status, String message, LocalDateTime timestamp) {
-        this.status = status;
-        this.message = message;
-        this.timestamp = timestamp;
     }
 
-    // Getters
-    public int getStatus() { return status; }
-    public String getMessage() { return message; }
-    public LocalDateTime getTimestamp() { return timestamp; }
+    /**
+     * Handle access denied
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Map<String, Object>> handleAccessDenied(
+            AccessDeniedException ex,
+            HttpServletRequest request
+    ) {
+        logger.warn("🚫 ACCESS DENIED - URI: {} - Message: {}",
+                request.getRequestURI(), ex.getMessage());
+
+        return buildErrorResponse(
+                HttpStatus.FORBIDDEN,
+                "Access Denied",
+                "You don't have permission to access this resource",
+                request.getRequestURI()
+        );
+    }
+
+    /**
+     * Handle resource not found
+     */
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleResourceNotFound(
+            ResourceNotFoundException ex,
+            HttpServletRequest request
+    ) {
+        logger.warn("🔍 RESOURCE NOT FOUND - URI: {} - Message: {}",
+                request.getRequestURI(), ex.getMessage());
+
+        return buildErrorResponse(
+                HttpStatus.NOT_FOUND,
+                "Resource Not Found",
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+    }
+
+    /**
+     * Handle all other runtime exceptions
+     */
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<Map<String, Object>> handleRuntimeException(
+            RuntimeException ex,
+            HttpServletRequest request
+    ) {
+        logger.error("🔥 RUNTIME EXCEPTION - URI: {} - Message: {}",
+                request.getRequestURI(), ex.getMessage(), ex);
+
+        return buildErrorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Internal Server Error",
+                ex.getMessage(),
+                request.getRequestURI()
+        );
+    }
+
+    /**
+     * Handle all other exceptions (catch-all)
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> handleAllExceptions(
+            Exception ex,
+            HttpServletRequest request
+    ) {
+        logger.error("💥 UNEXPECTED EXCEPTION - URI: {} - Type: {} - Message: {}",
+                request.getRequestURI(), ex.getClass().getSimpleName(), ex.getMessage(), ex);
+
+        return buildErrorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Internal Server Error",
+                "An unexpected error occurred",
+                request.getRequestURI()
+        );
+    }
+
+    /**
+     * Build error response
+     */
+    private ResponseEntity<Map<String, Object>> buildErrorResponse(
+            HttpStatus status,
+            String error,
+            String message,
+            String path
+    ) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("timestamp", LocalDateTime.now().toString());
+        response.put("status", status.value());
+        response.put("error", error);
+        response.put("message", message);
+        response.put("path", path);
+
+        return ResponseEntity.status(status).body(response);
+    }
 }
