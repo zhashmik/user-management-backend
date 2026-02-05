@@ -4,7 +4,7 @@
     # Task 1: Update UserController.java (@CrossOrigin)
     - name: Update Frontend IP in UserController
       replace:
-        path: "src/main/java/com/app/controller/UserController.java"
+        path: ""src/main/java/com/syn/usermanagement/controller/UserController.java""
         regexp: 'http://localhost:4200'
         replace: "http://{{ FRONTEND_IP }}:4200"
 
