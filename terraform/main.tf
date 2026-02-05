@@ -15,6 +15,7 @@ resource "aws_instance" "database" {
   ami                    = "ami-0b6c6ebed2801a5cb"
   instance_type          = "t2.micro"
   vpc_security_group_ids = [var.my_sg_id]
+  subnet_id              = var.my_subnet_id
   key_name               = "user"
   tags                   = { Name = "App-Database" }
 }
@@ -24,6 +25,7 @@ resource "aws_instance" "backend" {
   ami                    = "ami-0b6c6ebed2801a5cb"
   instance_type          = "t2.micro"
   vpc_security_group_ids = [var.my_sg_id]
+  subnet_id              = var.my_subnet_id
   key_name               = "user"
   tags                   = { Name = "App-Backend" }
 }
@@ -33,6 +35,7 @@ resource "aws_instance" "frontend" {
   ami                    = "ami-0b6c6ebed2801a5cb"
   instance_type          = "t2.micro"
   vpc_security_group_ids = [var.my_sg_id]
+  subnet_id              = var.my_subnet_id
   key_name               = "user"
   tags                   = { Name = "App-Frontend" }
 }
