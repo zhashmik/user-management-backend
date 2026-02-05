@@ -4,7 +4,7 @@ provider "aws" {
 
 # Replace 'sg-xxxxxxxx' with your actual Security Group ID from AWS Console
 variable "my_sg_id" {
-  default = "sg-0de0865bac85c2241" 
+  default = "sg-07dd3fbd2230f8dbb" 
 }
 
 variable "my_subnet_id" {
