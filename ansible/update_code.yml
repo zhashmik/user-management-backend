@@ -12,5 +12,5 @@
     - name: Update Database IP in application.properties
       replace:
         path: "{{ WORKSPACE }}/src/main/resources/application.properties"
-        regexp: 'localhost'
-        replace: "{{ DB_IP }}"
+        regexp: 'jdbc:mysql://localhost'
+        replace: "jdbc:mysql://{{ DB_IP }}"
