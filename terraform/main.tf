@@ -7,6 +7,9 @@ variable "my_sg_id" {
   default = "sg-0de0865bac85c2241" 
 }
 
+variable "my_subnet_id" {
+  default = "subnet-02884077c63e5a6ea" 
+}
 # 1. Database
 resource "aws_instance" "database" {
   ami                    = "ami-0b6c6ebed2801a5cb"
