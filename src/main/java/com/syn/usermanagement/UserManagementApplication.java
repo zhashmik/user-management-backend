@@ -5,6 +5,9 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.ArrayList;
+import java.util.concurrent.ConcurrentHashMap;
+
 @SpringBootApplication
 public class UserManagementApplication {
 
@@ -16,4 +19,8 @@ public class UserManagementApplication {
     public RestTemplate restTemplate() {
         return new RestTemplate();
     }
+
 }
+
+
+// --spring.profiles.active=prod
