@@ -1,0 +1,7 @@
+aws_region             = "us-east-1"
+backend_instance_type  = "t2.medium"
+database_instance_type = "t2.medium"
+frontend_instance_type = "t2.medium"
+s3_bucket_name         = "user-management-bucket-1501025"
+key_name               = "user"
+environment            = "dev"
