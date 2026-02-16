@@ -1,0 +1,128 @@
+---
+- name: Configure Backend Server with Java 17
+  hosts: backend
+  become: yes
+  gather_facts: yes
+
+  vars:
+    java_version: "17"
+    app_user: "appuser"
+    app_dir: "/opt/springboot"
+
+  tasks:
+    - name: Display server information
+      debug:
+        msg: "Setting up Backend Server: {{ inventory_hostname }}"
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install Java 17 (OpenJDK)
+      apt:
+        name:
+          - openjdk-17-jdk
+          - openjdk-17-jre
+        state: present
+        update_cache: yes
+
+    - name: Verify Java installation
+      command: java -version
+      register: java_version_output
+      changed_when: false
+
+    - name: Display Java version
+      debug:
+        var: java_version_output.stderr_lines
+
+    - name: Set JAVA_HOME environment variable
+      lineinfile:
+        path: /etc/environment
+        regexp: '^JAVA_HOME='
+        line: 'JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"'
+        create: yes
+
+    - name: Add JAVA_HOME to profile
+      blockinfile:
+        path: /etc/profile.d/java.sh
+        create: yes
+        mode: '0755'
+        block: |
+          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+          export PATH=$PATH:$JAVA_HOME/bin
+
+    - name: Create application user
+      user:
+        name: "{{ app_user }}"
+        shell: /bin/bash
+        createhome: yes
+        state: present
+
+    - name: Create application directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+
+    - name: Create logs directory
+      file:
+        path: "{{ app_dir }}/logs"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+
+    - name: Install Maven (optional - for building)
+      apt:
+        name: maven
+        state: present
+
+    - name: Create systemd service file for Spring Boot
+      copy:
+        dest: /etc/systemd/system/springboot-app.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Spring Boot Application
+          After=syslog.target network.target
+          
+          [Service]
+          User={{ app_user }}
+          Group={{ app_user }}
+          Type=simple
+          
+          WorkingDirectory={{ app_dir }}
+          ExecStart=/usr/bin/java -jar {{ app_dir }}/application.jar
+          
+          StandardOutput=append:{{ app_dir }}/logs/application.log
+          StandardError=append:{{ app_dir }}/logs/application-error.log
+          
+          SuccessExitStatus=143
+          Restart=on-failure
+          RestartSec=10
+          
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: yes
+
+    - name: Install additional build tools
+      apt:
+        name:
+          - build-essential
+          - python3-pip
+        state: present
+
+    - name: Display completion message
+      debug:
+        msg: |
+          Backend server setup completed!
+          - Java 17 installed
+          - Application directory: {{ app_dir }}
+          - Application user: {{ app_user }}
+          - Systemd service: springboot-app.service
