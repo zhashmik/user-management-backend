@@ -1,0 +1,127 @@
+---
+- name: Configure Database Server with MySQL
+  hosts: database
+  become: yes
+  gather_facts: yes
+
+  vars:
+    mysql_root_password: "admin"  # Change this!
+    mysql_database: "users"
+    mysql_user: "admin"
+    mysql_password: "admin"  # Change this!
+
+  tasks:
+    - name: Display server information
+      debug:
+        msg: "Setting up Database Server: {{ inventory_hostname }}"
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install MySQL Server
+      apt:
+        name:
+          - mysql-server
+          - mysql-client
+          - python3-pymysql
+        state: present
+        update_cache: yes
+
+    - name: Ensure MySQL service is started and enabled
+      systemd:
+        name: mysql
+        state: started
+        enabled: yes
+
+    - name: Wait for MySQL to be ready
+      wait_for:
+        port: 3306
+        delay: 5
+        timeout: 60
+
+    - name: Configure MySQL to listen on all interfaces
+      lineinfile:
+        path: /etc/mysql/mysql.conf.d/mysqld.cnf
+        regexp: '^bind-address'
+        line: 'bind-address = 0.0.0.0'
+        backup: yes
+      notify: Restart MySQL
+
+    - name: Set MySQL root password
+      mysql_user:
+        name: root
+        password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        state: present
+      ignore_errors: yes
+
+    - name: Create application database
+      mysql_db:
+        name: "{{ mysql_database }}"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Create application MySQL user
+      mysql_user:
+        name: "{{ mysql_user }}"
+        password: "{{ mysql_password }}"
+        priv: "{{ mysql_database }}.*:ALL"
+        host: "%"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Remove anonymous MySQL users
+      mysql_user:
+        name: ''
+        host_all: yes
+        state: absent
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Remove MySQL test database
+      mysql_db:
+        name: test
+        state: absent
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Create MySQL backup directory
+      file:
+        path: /var/backups/mysql
+        state: directory
+        mode: '0700'
+
+    - name: Create MySQL backup script
+      copy:
+        dest: /usr/local/bin/mysql-backup.sh
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          BACKUP_DIR="/var/backups/mysql"
+          DATE=$(date +%Y%m%d_%H%M%S)
+          mysqldump -u root -p{{ mysql_root_password }} --all-databases > $BACKUP_DIR/backup_$DATE.sql
+          find $BACKUP_DIR -name "backup_*.sql" -mtime +7 -delete
+
+    - name: Display database connection info
+      debug:
+        msg: |
+          MySQL Database setup completed!
+          - Database: {{ mysql_database }}
+          - User: {{ mysql_user }}
+          - Host: {{ inventory_hostname }}
+          - Port: 3306
+          - Connection string: jdbc:mysql://{{ inventory_hostname }}:3306/{{ mysql_database }}
+
+  handlers:
+    - name: Restart MySQL
+      systemd:
+        name: mysql
+        state: restarted
