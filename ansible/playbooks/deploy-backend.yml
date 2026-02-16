@@ -1,0 +1,175 @@
+---
+- name: Deploy Spring Boot Application
+  hosts: backend
+  become: yes
+
+  vars:
+    app_dir: /opt/springboot
+    app_user: appuser
+    jar_source: /tmp/application.jar
+
+  tasks:
+    - name: Get database server IP
+      set_fact:
+        database_ip: "{{ groups['database'][0] }}"
+
+    - name: Display database IP
+      debug:
+        msg: "Database IP: {{ database_ip }}"
+
+    - name: Create application user
+      user:
+        name: "{{ app_user }}"
+        shell: /bin/bash
+        createhome: yes
+        state: present
+
+    - name: Create application directory
+      file:
+        path: "{{ app_dir }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+
+    - name: Create logs directory
+      file:
+        path: "{{ app_dir }}/logs"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+
+    - name: Stop existing application
+      systemd:
+        name: springboot-app
+        state: stopped
+      ignore_errors: yes
+
+    - name: Backup old JAR
+      copy:
+        src: "{{ app_dir }}/application.jar"
+        dest: "{{ app_dir }}/application.jar.backup"
+        remote_src: yes
+      ignore_errors: yes
+
+    - name: Copy new JAR
+      copy:
+        src: "{{ jar_source }}"
+        dest: "{{ app_dir }}/application.jar"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+        remote_src: yes
+
+    - name: Create application.properties
+      copy:
+        dest: "{{ app_dir }}/application.properties"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0644'
+        content: |
+          # Database Configuration
+          spring.datasource.url=jdbc:mysql://{{ database_ip }}:3306/users
+          spring.datasource.username=admin
+          spring.datasource.password=admin
+          spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+          spring.jpa.hibernate.ddl-auto=update
+          spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQL8Dialect
+          
+          # File upload limits
+          spring.servlet.multipart.max-file-size=5MB
+          spring.servlet.multipart.max-request-size=5MB
+          
+          # Logging & Trace
+          server.error.include-stacktrace=never
+          
+          # JWT Configuration
+          jwt.secret=dGhpc0lzQVZlcnlMb25nU2VjcmV0S2V5Rm9ySldUVG9rZW5HZW5lcmF0aW9uMTIzNDU2Nzg5MA==
+          jwt.expiration=86400000
+          
+          # Logging Configuration
+          logging.file.path={{ app_dir }}/logs
+          logging.file.name={{ app_dir }}/logs/user-management.log
+          
+          # Default log level
+          logging.level.root=INFO
+          logging.level.com.syn.usermanagement=DEBUG
+          logging.level.org.springframework.security=INFO
+          logging.level.org.hibernate.SQL=DEBUG
+          logging.level.org.hibernate.type.descriptor.sql.BasicBinder=TRACE
+          logging.level.org.springframework.web=INFO
+          logging.level.org.springframework.boot.web.embedded.tomcat=INFO
+          
+          # Log Pattern Configuration
+          logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan(%logger{36}) - %msg%n
+          logging.pattern.file=%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [%X{requestId}] %logger{36} - %msg%n
+          
+          # Log File Rotation
+          logging.logback.rollingpolicy.max-file-size=10MB
+          logging.logback.rollingpolicy.max-history=30
+          logging.logback.rollingpolicy.total-size-cap=1GB
+          
+          # CORS
+          cors.allowed-origins=http://localhost:4200
+          
+          # Profiles
+          spring.profiles.active=prod
+          
+          # Server Port
+          server.port=8080
+
+          # AWS Configuration
+          aws.access-key={{ aws_access_key }}
+          aws.secret-key={{ aws_secret_key }}
+          aws.s3.bucket-name={{ aws_s3_bucket }}
+          aws.s3.region={{ aws_s3_region }}
+
+    - name: Update systemd service to use external config
+      copy:
+        dest: /etc/systemd/system/springboot-app.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Spring Boot Application
+          After=syslog.target network.target
+          
+          [Service]
+          User={{ app_user }}
+          Group={{ app_user }}
+          Type=simple
+          
+          WorkingDirectory={{ app_dir }}
+          ExecStart=/usr/bin/java -jar {{ app_dir }}/application.jar --spring.config.location={{ app_dir }}/application.properties
+          
+          StandardOutput=append:{{ app_dir }}/logs/application.log
+          StandardError=append:{{ app_dir }}/logs/application-error.log
+          
+          SuccessExitStatus=143
+          Restart=on-failure
+          RestartSec=10
+          
+          [Install]
+          WantedBy=multi-user.target
+      notify: Reload systemd
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: Start application
+      systemd:
+        name: springboot-app
+        state: started
+        enabled: yes
+
+    - name: Wait for application to start
+      wait_for:
+        port: 8080
+        delay: 5
+        timeout: 60
+
+  handlers:
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
