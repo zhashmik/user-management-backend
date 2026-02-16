@@ -1,0 +1,217 @@
+---
+- name: Configure Frontend Server with Node.js 20.x and Nginx
+  hosts: frontend
+  become: yes
+  gather_facts: yes
+
+  vars:
+    nodejs_version: "20"
+    app_user: "appuser"
+    web_root: "/var/www/html"
+    nginx_server_name: "_"  # Change to your domain
+
+  tasks:
+    - name: Display server information
+      debug:
+        msg: "Setting up Frontend Server: {{ inventory_hostname }}"
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install prerequisite packages
+      apt:
+        name:
+          - curl
+          - gnupg
+          - ca-certificates
+        state: present
+
+    - name: Download NodeSource setup script
+      get_url:
+        url: https://deb.nodesource.com/setup_{{ nodejs_version }}.x
+        dest: /tmp/nodesource_setup.sh
+        mode: '0755'
+
+    - name: Run NodeSource setup script
+      command: bash /tmp/nodesource_setup.sh
+      args:
+        creates: /etc/apt/sources.list.d/nodesource.list
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+        update_cache: yes
+
+    - name: Verify Node.js installation
+      command: node --version
+      register: node_version_output
+      changed_when: false
+
+    - name: Verify npm installation
+      command: npm --version
+      register: npm_version_output
+      changed_when: false
+
+    - name: Display Node.js and npm versions
+      debug:
+        msg: |
+          Node.js version: {{ node_version_output.stdout }}
+          npm version: {{ npm_version_output.stdout }}
+
+    - name: Install Angular CLI globally
+      npm:
+        name: "@angular/cli"
+        global: yes
+        state: present
+
+    - name: Verify Angular CLI installation
+      command: ng version
+      register: ng_version_output
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Install PM2 globally (for process management)
+      npm:
+        name: "pm2"
+        global: yes
+        state: present
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Start and enable Nginx
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+
+    - name: Create application user
+      user:
+        name: "{{ app_user }}"
+        shell: /bin/bash
+        createhome: yes
+        state: present
+
+    - name: Create web root directory
+      file:
+        path: "{{ web_root }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+
+    - name: Create Angular app directory
+      file:
+        path: "/home/{{ app_user }}/angular-app"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+
+    - name: Configure Nginx for Angular
+      copy:
+        dest: /etc/nginx/sites-available/angular-app
+        content: |
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name {{ nginx_server_name }};
+          
+              root {{ web_root }};
+              index index.html index.htm;
+          
+              # Angular SPA configuration
+              location / {
+                  try_files $uri $uri/ /index.html;
+              }
+          
+              # Cache static assets
+              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+                  expires 1y;
+                  add_header Cache-Control "public, immutable";
+              }
+          
+              # Security headers
+              add_header X-Frame-Options "SAMEORIGIN" always;
+              add_header X-Content-Type-Options "nosniff" always;
+              add_header X-XSS-Protection "1; mode=block" always;
+          
+              # Gzip compression
+              gzip on;
+              gzip_vary on;
+              gzip_min_length 1024;
+              gzip_types text/plain text/css text/xml text/javascript 
+                         application/x-javascript application/xml+rss 
+                         application/javascript application/json;
+          }
+        mode: '0644'
+      notify: Reload Nginx
+
+    - name: Enable Nginx site
+      file:
+        src: /etc/nginx/sites-available/angular-app
+        dest: /etc/nginx/sites-enabled/angular-app
+        state: link
+      notify: Reload Nginx
+
+    - name: Remove default Nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload Nginx
+
+    - name: Test Nginx configuration
+      command: nginx -t
+      changed_when: false
+
+    - name: Create default index.html
+      copy:
+        dest: "{{ web_root }}/index.html"
+        content: |
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Angular Application</title>
+              <style>
+                  body {
+                      font-family: Arial, sans-serif;
+                      text-align: center;
+                      padding: 50px;
+                      background-color: #f0f0f0;
+                  }
+                  h1 { color: #dd0031; }
+              </style>
+          </head>
+          <body>
+              <h1>Angular Application Server Ready</h1>
+              <p>Node.js {{ node_version_output.stdout }} installed</p>
+              <p>Deploy your Angular application to {{ web_root }}</p>
+          </body>
+          </html>
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0644'
+
+    - name: Display completion message
+      debug:
+        msg: |
+          Frontend server setup completed!
+          - Node.js {{ node_version_output.stdout }} installed
+          - npm {{ npm_version_output.stdout }} installed
+          - Angular CLI installed
+          - PM2 installed
+          - Nginx configured
+          - Web root: {{ web_root }}
+          - Application user: {{ app_user }}
+          - Access: http://{{ inventory_hostname }}
+
+  handlers:
+    - name: Reload Nginx
+      systemd:
+        name: nginx
+        state: reloaded
