@@ -1,0 +1,33 @@
+---
+- name: Setup All Servers
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install common packages
+      apt:
+        name:
+          - wget
+          - curl
+          - vim
+          - git
+          - htop
+          - net-tools
+          - unzip
+          - software-properties-common
+        state: present
+
+- name: Setup Backend Server
+  import_playbook: setup_backend.yml
+
+- name: Setup Database Server
+  import_playbook: setup_database.yml
+
+- name: Setup Frontend Server
+  import_playbook: setup_frontend.yml
