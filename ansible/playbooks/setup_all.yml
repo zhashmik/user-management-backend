@@ -24,7 +24,7 @@
         state: present
 
 - name: Setup Backend Server
-  import_playbook: setup_backend.yml
+  import_playbook: setup_docker.yml
 
 - name: Setup Database Server
   import_playbook: setup_database.yml
